@@ -474,7 +474,8 @@ function isProtectedChrome(el) {
 function isTopChromeShell(el) {
   if (!el || el === document.body || el === document.documentElement) return false;
   if (isProtectedChrome(el)) return true;
-  if (el.id === 'gb' || el.querySelector?.(':scope > #gb, :scope > header#gb, :scope > header[role="banner"]')) {
+  if (el.id === 'gb') return true;
+  if (el.querySelector?.(':scope > #gb, :scope > header#gb, :scope > header[role="banner"]')) {
     return true;
   }
   return false;
