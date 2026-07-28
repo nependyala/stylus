@@ -87,6 +87,7 @@ main,
   background-position: center !important;
   background-size: cover !important;
   background-repeat: no-repeat !important;
+  isolation: isolate !important;
 }
 
 /*
@@ -104,6 +105,7 @@ main,
   background-size: cover !important;
   background-repeat: no-repeat !important;
   filter: var(--stylus-frost-filter) !important;
+  isolation: isolate !important;
   mask-image: linear-gradient(
     to right,
     transparent 0%,
@@ -124,7 +126,7 @@ main,
   ) !important;
 }
 
-/* App UI above frost */
+/* App UI above frost — do not use !important; sticky chrome is handled below */
 body > *:not(#${WALLPAPER_ID}):not(#${VEIL_ID}) {
   position: relative;
   z-index: 2;
@@ -143,7 +145,27 @@ h1, h2, h3, h4,
 
 a { color: var(--stylus-accent) !important; }
 
-/* Top Google bar only — never bare [role=banner] (that painted whole pages black). */
+/*
+ * Top Google bar + sticky wrappers — never bare [role=banner] alone
+ * (that painted whole pages black). Docs pins the search chrome with
+ * sticky/fixed ancestors; force normal flow so it scrolls away.
+ */
+#gb,
+#gb[role="banner"],
+header#gb,
+header[role="banner"],
+.stylus-scroll-flow,
+.docs-homescreen-floater,
+body > div:has(> #gb),
+body > div:has(> header#gb),
+body > div:has(> header[role="banner"]) {
+  position: relative !important;
+  top: auto !important;
+  bottom: auto !important;
+  inset: auto !important;
+  transform: none !important;
+}
+
 #gb,
 #gb[role="banner"],
 header#gb,
@@ -212,6 +234,7 @@ main svg,
   color: var(--stylus-fg) !important;
 }
 
+/* Simple dark menus */
 .goog-menu,
 .goog-menuitem,
 .goog-menuitem-content {
@@ -225,9 +248,12 @@ main svg,
 }
 
 .stylus-recent-bar {
-  position: sticky !important;
-  top: 0 !important;
-  z-index: 20 !important;
+  /* Scroll away with the page — never sticky/fixed */
+  position: relative !important;
+  top: auto !important;
+  bottom: auto !important;
+  inset: auto !important;
+  transform: none !important;
   background-color: var(--stylus-surface) !important;
   background-image: none !important;
   border-bottom: 1px solid var(--stylus-border) !important;
@@ -250,14 +276,6 @@ main svg,
 
 .stylus-recent-bar svg {
   fill: var(--stylus-fg) !important;
-  color: var(--stylus-fg) !important;
-}
-
-.stylus-recent-bar [role="button"],
-.stylus-recent-bar [role="tab"],
-.stylus-recent-bar button {
-  background-color: var(--stylus-search) !important;
-  border-color: var(--stylus-border) !important;
   color: var(--stylus-fg) !important;
 }
 
@@ -318,9 +336,13 @@ const RGB_RE = /rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*([\d.]
 const RECENT_BAR_CLASS = 'stylus-recent-bar';
 const DOC_FOOTER_CLASS = 'stylus-doc-footer';
 const DOC_CARD_CLASS = 'stylus-doc-card';
-const PROTECTED_CHROME = `#gb, .${RECENT_BAR_CLASS}, .${DOC_FOOTER_CLASS}`;
+const SCROLL_FLOW_CLASS = 'stylus-scroll-flow';
+const PROTECTED_CHROME = `#gb, .${RECENT_BAR_CLASS}, .${DOC_FOOTER_CLASS}, .${SCROLL_FLOW_CLASS}`;
 /** Index of the wallpaper currently painted — never advanced by mutation cleanup. */
 let currentIndex = Math.floor(Math.random() * WALLPAPERS.length);
+/** True while the user is actively scrolling — skip heavy clears that flash wallpaper. */
+let scrolling = false;
+let scrollIdleTimer = 0;
 
 function ensureStyle() {
   let el = document.getElementById(STYLE_ID);
@@ -381,7 +403,7 @@ function punchLargeShells(root = document.body) {
     steps++;
     const el = stack.shift();
     if (!el || el.id === WALLPAPER_ID || el.id === VEIL_ID) continue;
-    if (isProtectedChrome(el) || isThumbnailCard(el)) continue;
+    if (isTopChromeShell(el) || isThumbnailCard(el)) continue;
     const r = el.getBoundingClientRect();
     if (r.width < 80 || r.height < 40) continue;
     if (r.width >= minW || r.height >= minH || (r.width >= 500 && r.height >= 240)) {
@@ -439,12 +461,6 @@ function isBlockingFill(colorStr) {
   return lum > 210 || lum < 80;
 }
 
-function isLightFill(colorStr) {
-  const c = parseRgba(colorStr);
-  if (!c || c.a < 0.35) return false;
-  return (0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b) > 200;
-}
-
 function isCssFillImage(bgImg) {
   if (!bgImg || bgImg === 'none') return false;
   return !/url\(/i.test(bgImg);
@@ -452,6 +468,16 @@ function isCssFillImage(bgImg) {
 
 function isProtectedChrome(el) {
   return !!(el.closest?.(PROTECTED_CHROME) || el.matches?.(PROTECTED_CHROME));
+}
+
+/** Header / sticky wrappers that must stay opaque and in normal flow. */
+function isTopChromeShell(el) {
+  if (!el || el === document.body || el === document.documentElement) return false;
+  if (isProtectedChrome(el)) return true;
+  if (el.id === 'gb' || el.querySelector?.(':scope > #gb, :scope > header#gb, :scope > header[role="banner"]')) {
+    return true;
+  }
+  return false;
 }
 
 function isInTemplateSection(el) {
@@ -494,30 +520,73 @@ function clearBackground(el) {
 function findTextAnchor(re) {
   const root = document.body;
   if (!root) return null;
+  let fallback = null;
   for (const el of root.querySelectorAll('div, span, button, [role="button"], h1, h2, h3, a')) {
+    let hit = false;
     for (const node of el.childNodes) {
-      if (node.nodeType === Node.TEXT_NODE && re.test(node.textContent || '')) return el;
+      if (node.nodeType === Node.TEXT_NODE && re.test(node.textContent || '')) {
+        hit = true;
+        break;
+      }
     }
+    if (!hit) {
+      const t = (el.textContent || '').trim();
+      if (t.length < 48 && re.test(t)) hit = true;
+    }
+    if (!hit) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width > 0 && r.height > 0 && r.bottom > 0 && r.top < window.innerHeight) return el;
+    if (!fallback) fallback = el;
   }
-  for (const el of root.querySelectorAll('div, span, button, [role="button"], a')) {
-    const t = (el.textContent || '').trim();
-    if (t.length < 48 && re.test(t)) return el;
-  }
-  return null;
+  return fallback;
 }
 
-/** Opaque dark bar for Owned-by / Recent documents controls only. */
+/**
+ * Docs (and #gb) pin the top search chrome with sticky/fixed wrappers.
+ * Tag those with a CSS class so they stay in normal flow without inline-style fights.
+ */
+function unstickTopSearchChrome() {
+  const roots = [
+    document.getElementById('gb'),
+    document.querySelector('header#gb'),
+    document.querySelector('header[role="banner"]'),
+  ].filter(Boolean);
+  if (!roots.length) return;
+
+  const seen = new Set();
+  for (const root of roots) {
+    let el = root;
+    for (let i = 0; i < 12 && el && el !== document.body && el !== document.documentElement; i++) {
+      if (!seen.has(el)) {
+        seen.add(el);
+        const st = getComputedStyle(el);
+        const pinned = st.position === 'sticky' || st.position === 'fixed' ||
+          el.classList.contains(SCROLL_FLOW_CLASS);
+        const r = el.getBoundingClientRect();
+        // Only the top chrome strip — don't touch menus / dialogs.
+        const topStrip = r.top <= 12 && r.width > window.innerWidth * 0.45 &&
+          r.height > 28 && r.height < 160;
+        if ((pinned || el === root) && topStrip) {
+          el.classList.add(SCROLL_FLOW_CLASS);
+        }
+      }
+      el = el.parentElement;
+    }
+  }
+}
+
+/** Opaque dark bar for the Recent documents toolbar row. */
 function markRecentBar() {
   const root = document.body;
   if (!root) return;
 
   for (const el of root.querySelectorAll(`.${RECENT_BAR_CLASS}`)) {
-    if (!OWNED_BY_RE.test(el.textContent || '')) {
+    if (!OWNED_BY_RE.test(el.textContent || '') && !RECENT_DOCS_RE.test(el.textContent || '')) {
       el.classList.remove(RECENT_BAR_CLASS);
     }
   }
 
-  const anchor = findTextAnchor(OWNED_BY_RE);
+  const anchor = findTextAnchor(OWNED_BY_RE) || findTextAnchor(RECENT_DOCS_RE);
   if (!anchor || isInTemplateSection(anchor)) return;
 
   let cur = anchor;
@@ -528,12 +597,12 @@ function markRecentBar() {
     const text = cur.textContent || '';
     if (
       r.width > 480 && r.height > 28 && r.height < 90 &&
-      OWNED_BY_RE.test(text) &&
+      (OWNED_BY_RE.test(text) || RECENT_DOCS_RE.test(text)) &&
       !TEMPLATE_GALLERY_RE.test(text) &&
       !START_NEW_RE.test(text)
     ) {
       best = cur;
-      if (RECENT_DOCS_RE.test(text)) break;
+      if (RECENT_DOCS_RE.test(text) && OWNED_BY_RE.test(text)) break;
     }
     cur = cur.parentElement;
   }
@@ -544,14 +613,63 @@ function markRecentBar() {
   best.style.setProperty('background-image', 'none', 'important');
   best.style.setProperty('color', 'var(--stylus-fg)', 'important');
   best.style.setProperty('text-shadow', 'none', 'important');
-  for (const child of best.querySelectorAll('div, span')) {
-    const st = getComputedStyle(child);
-    if (isLightFill(st.backgroundColor) && child.getBoundingClientRect().height < 90) {
-      child.style.setProperty('background-color', 'transparent', 'important');
-    }
+  for (const child of best.querySelectorAll('div, span, button, a, [role="button"]')) {
     child.style.setProperty('text-shadow', 'none', 'important');
     child.style.setProperty('color', 'var(--stylus-fg)', 'important');
   }
+  ensureRecentTitleVisible(best);
+}
+
+/** Make sure "Recent documents" is visible and not ghosted. */
+function ensureRecentTitleVisible(bar) {
+  const root = bar || document.body;
+  if (!root) return;
+
+  const candidates = [];
+  for (const el of root.querySelectorAll('div, span, h1, h2, h3')) {
+    const t = (el.textContent || '').trim();
+    if (!RECENT_DOCS_RE.test(t) || t.length > 36) continue;
+    if ((el.children?.length || 0) > 2) continue;
+    candidates.push(el);
+  }
+  const leaves = candidates.filter(el => !candidates.some(o => o !== el && el.contains(o)));
+  if (!leaves.length) return;
+
+  // Restore everything first (previous pass may have zeroed opacity).
+  for (const el of leaves) {
+    el.style.setProperty('opacity', '1', 'important');
+    el.style.setProperty('visibility', 'visible', 'important');
+    el.style.setProperty('color', 'var(--stylus-fg)', 'important');
+    el.style.setProperty('text-shadow', 'none', 'important');
+    el.style.setProperty('pointer-events', 'auto', 'important');
+  }
+  if (leaves.length < 2) return;
+
+  // Keep the largest visible leaf; hide only clearly overlapping clones.
+  const scored = leaves.map(el => {
+    const st = getComputedStyle(el);
+    const r = el.getBoundingClientRect();
+    const ariaHidden = el.closest('[aria-hidden="true"]');
+    const area = Math.max(0, r.width) * Math.max(0, r.height);
+    const score = area * Number(st.opacity || 1) - (ariaHidden ? 1e6 : 0);
+    return {el, r, st, score};
+  }).sort((a, b) => b.score - a.score);
+
+  const keep = scored[0];
+  for (const item of scored.slice(1)) {
+    const near = Math.abs(item.r.top - keep.r.top) < 20 &&
+      Math.abs(item.r.left - keep.r.left) < 36;
+    const abs = item.st.position === 'absolute' || item.st.position === 'fixed';
+    const ariaHidden = !!item.el.closest('[aria-hidden="true"]');
+    if ((near && (abs || ariaHidden || item.score < keep.score * 0.6)) || ariaHidden) {
+      item.el.style.setProperty('opacity', '0', 'important');
+      item.el.style.setProperty('pointer-events', 'none', 'important');
+    }
+  }
+}
+
+function killGhostLabels() {
+  ensureRecentTitleVisible(document.body);
 }
 
 function styleDocCardFooters() {
@@ -675,14 +793,19 @@ function restoreTemplateSection() {
 
 function clearBlockingSurfaces() {
   const root = document.body;
-  if (!root) return;
+  if (!root || scrolling) return;
 
   for (const el of root.querySelectorAll('div, section, main, header, [role="main"]')) {
     if (el.id === WALLPAPER_ID || el.id === VEIL_ID) continue;
     if (isThumbnailCard(el)) continue;
-    if (isProtectedChrome(el)) continue;
+    if (isTopChromeShell(el)) continue;
     const st = getComputedStyle(el);
     if (st.opacity === '0' || st.visibility === 'hidden') continue;
+    // Never punch sticky/fixed top strips — clearing them flashes wallpaper behind chrome.
+    if ((st.position === 'sticky' || st.position === 'fixed') &&
+        el.getBoundingClientRect().top <= 12) {
+      continue;
+    }
     const bgImg = st.backgroundImage;
     if (bgImg && bgImg !== 'none' && !isCssFillImage(bgImg)) continue;
     const r = el.getBoundingClientRect();
@@ -722,14 +845,19 @@ function tick() {
 
 let applying = false;
 
-function refreshUi() {
+function refreshUi({heavy = true} = {}) {
+  if (scrolling && heavy) return;
   applying = true;
   try {
     ensureLayers();
-    clearBlockingSurfaces();
-    restoreTemplateSection();
-    markRecentBar();
-    styleDocCardFooters();
+    unstickTopSearchChrome();
+    if (heavy) {
+      clearBlockingSurfaces();
+      restoreTemplateSection();
+      markRecentBar();
+      styleDocCardFooters();
+      killGhostLabels();
+    }
   } finally {
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
@@ -740,19 +868,17 @@ function refreshUi() {
 }
 
 function keepWallpaperVisible() {
-  if (applying) return;
-  applying = true;
-  try {
-    ensureLayers();
-    clearBlockingSurfaces();
-    restoreTemplateSection();
-    markRecentBar();
-    styleDocCardFooters();
-  } finally {
-    requestAnimationFrame(() => {
-      applying = false;
-    });
-  }
+  if (applying || scrolling) return;
+  refreshUi({heavy: false});
+}
+
+function onScrollActivity() {
+  scrolling = true;
+  if (scrollIdleTimer) clearTimeout(scrollIdleTimer);
+  scrollIdleTimer = setTimeout(() => {
+    scrolling = false;
+    refreshUi({heavy: true});
+  }, 180);
 }
 
 function start() {
@@ -768,24 +894,30 @@ function start() {
     img.src = url;
   }
 
+  window.addEventListener('scroll', onScrollActivity, {passive: true, capture: true});
+  document.addEventListener('scroll', onScrollActivity, {passive: true, capture: true});
+
   let scheduled = 0;
   const scheduleClear = () => {
-    if (applying || scheduled) return;
-    scheduled = requestAnimationFrame(() => {
+    if (applying || scrolling || scheduled) return;
+    scheduled = setTimeout(() => {
       scheduled = 0;
-      refreshUi();
-      requestAnimationFrame(keepWallpaperVisible);
-    });
+      refreshUi({heavy: true});
+    }, 200);
   };
-  refreshUi();
+  refreshUi({heavy: true});
   new MutationObserver(mutations => {
     for (const m of mutations) {
       const t = m.target;
       if (t === document.getElementById(STYLE_ID)) continue;
       if (t?.id === WALLPAPER_ID || t?.id === VEIL_ID) continue;
-      if (t?.classList?.contains(DOC_FOOTER_CLASS) || t?.classList?.contains(RECENT_BAR_CLASS)) {
+      if (t?.classList?.contains(DOC_FOOTER_CLASS) ||
+          t?.classList?.contains(RECENT_BAR_CLASS) ||
+          t?.classList?.contains(SCROLL_FLOW_CLASS)) {
         continue;
       }
+      // Ignore pure style thrash during scroll/layout — it caused wallpaper flashes.
+      if (m.type === 'attributes' && m.attributeName === 'style') continue;
       scheduleClear();
       return;
     }
@@ -793,12 +925,13 @@ function start() {
     childList: true,
     subtree: true,
     attributes: true,
-    attributeFilter: ['class', 'style'],
+    attributeFilter: ['class'],
   });
-  const keepAlive = setInterval(keepWallpaperVisible, 300);
-  setTimeout(() => clearInterval(keepAlive), 12_000);
-  for (const delay of [300, 800, 1500, 3000, 6000]) {
-    setTimeout(refreshUi, delay);
+  // Light keep-alive only — never re-punch backgrounds in a tight loop.
+  const keepAlive = setInterval(keepWallpaperVisible, 1000);
+  setTimeout(() => clearInterval(keepAlive), 8_000);
+  for (const delay of [400, 1200, 3000]) {
+    setTimeout(() => refreshUi({heavy: true}), delay);
   }
 }
 
