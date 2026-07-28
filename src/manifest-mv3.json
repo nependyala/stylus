@@ -33,10 +33,15 @@
       "js": ["js/hook-uso-page-mv3.js"],
       "run_at": "document_start",
       "world": "MAIN"
+    },
+    {
+      "matches": ["https://docs.google.com/*"],
+      "js": ["js/docs-wallpaper.js"],
+      "run_at": "document_start"
     }
   ],
   "web_accessible_resources": [{
-    "resources": ["install-usercss.html"],
+    "resources": ["install-usercss.html", "wallpapers/*"],
     "matches": ["<all_urls>"],
     "use_dynamic_url": false
   }]

@@ -1,5 +1,28 @@
 Stylus is a browser extension to restyle the websites via CSS themes, compatible with Chrome, Firefox, and any Chromium-based browsers.
 
+## Local Chrome setup (reset anytime)
+
+If your terminal dies, you reboot, or Chrome stops loading this build, re-run from the project root:
+
+```bash
+pnpm i
+pnpm build-chrome-mv3
+```
+
+Then in Chrome:
+
+1. Open `chrome://extensions`
+2. Enable **Developer mode**
+3. If Stylus isn’t listed yet: **Load unpacked** → select the `dist-chrome-mv3` folder in this repo
+4. If it’s already loaded: click the **reload** icon on the Stylus card
+5. Disable any Chrome Web Store Stylus so only this local build is active
+
+For live rebuilds while editing: `pnpm watch-chrome-mv3` (point Chrome at `dist-chrome-mv3`, then reload the extension after big changes).
+
+### Google Docs wallpapers
+
+This local build clears the Docs page background and rotates images from `wallpapers/` (one per minute) on `https://docs.google.com/*`. After rebuilding, reload the Stylus extension on `chrome://extensions`, then refresh Docs.
+
 ## Highlights
 
 * No analytics/tracking - this is our foundational principle as Stylus was created solely because the original Stylish extension was sold to a Web analytics company.

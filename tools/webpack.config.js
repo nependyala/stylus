@@ -8,7 +8,7 @@ const MiniCssExtractPlugin = require('mini-css-extract-plugin');
 const CopyPlugin = require('copy-webpack-plugin');
 const {RawEnvPlugin} = require('./wp-raw-patch-plugin');
 const {
-  nukeHtmlSpaces, transESM2var, transSourceMap, BUILD, DEV, HMR, FLAVOR, MANIFEST, MV3, SRC,
+  nukeHtmlSpaces, transESM2var, transSourceMap, BUILD, DEV, HMR, FLAVOR, MANIFEST, MV3, SRC, ROOT,
 } = require('./util');
 const augment = require('./webpack.base');
 const {
@@ -219,6 +219,7 @@ module.exports = [
           {context: SRC, from: MANIFEST.replace('.', `?(-${FLAVOR}*).`), to: MANIFEST,
             transformAll: makeManifest},
           {context: SRC, from: '_locales/**', to: DST},
+          {context: ROOT, from: 'wallpapers/**', to: DST + 'wallpapers/[name][ext]'},
           {context: THEME_PATH, from: '*.css', to: DST + CM_PATH},
           ...[
             ['csslint-mod/dist/csslint.js', 'csslint.js', true],
@@ -294,6 +295,7 @@ module.exports = [
   makeContentScript('apply.js'),
   makeContentScript('hook-uso.js'),
   MV3 && makeContentScript('hook-uso-page-mv3.js'),
+  makeContentScript('docs-wallpaper.js'),
   makeLibrary('@/js/worker', undefined, {ENTRY: 'worker'}),
   makeLibrary({less: 'less/lib/less-browser/bootstrap'}, 'less'),
 ].filter(Boolean);
