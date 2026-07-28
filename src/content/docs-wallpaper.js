@@ -8,16 +8,16 @@ const VEIL_ID = 'stylus-docs-content-veil';
 const STYLE_ID = 'stylus-docs-wallpaper-css';
 
 const WALLPAPERS = [
-  '15-49-4x_BSRGAN.png',
-  '16-50-4x_BSRGAN.png',
-  '17-45-4x_BSRGAN.png',
-  'Arcane.S01E04.Happy.Progress.Day31.59.png',
-  'Arcane.S01E05.Everybody.Wants.to.Be.My.Enemy29.08.png',
-  'Arcane.S01E06.When.These.Walls.Come.Tumbling.Down29.42.png',
-  'Arcane.S01E07.The.Boy.Savior.11.19.png',
-  'Arcane.S01E09.The.Monster.You.Created.34.59.png',
-  'Arcane.S01E09.The.Monster.You.Created.35.06.png',
-  'Arcane.S01E09.The.Monster.You.Created.35.46.png',
+  '15-49-4x_BSRGAN.jpg',
+  '16-50-4x_BSRGAN.jpg',
+  '17-45-4x_BSRGAN.jpg',
+  'Arcane.S01E04.Happy.Progress.Day31.59.jpg',
+  'Arcane.S01E05.Everybody.Wants.to.Be.My.Enemy29.08.jpg',
+  'Arcane.S01E06.When.These.Walls.Come.Tumbling.Down29.42.jpg',
+  'Arcane.S01E07.The.Boy.Savior.11.19.jpg',
+  'Arcane.S01E09.The.Monster.You.Created.34.59.jpg',
+  'Arcane.S01E09.The.Monster.You.Created.35.06.jpg',
+  'Arcane.S01E09.The.Monster.You.Created.35.46.jpg',
 ].map(name => chrome.runtime.getURL(`wallpapers/${name}`));
 
 /* Never use the `background` shorthand — it wipes thumbnail background-images. */
